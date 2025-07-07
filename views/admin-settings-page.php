@@ -76,6 +76,13 @@ if (isset($_POST['wcps_action']) && $_POST['wcps_action'] === 'clear_failed_log'
             <div class="inside">
                 <table class="form-table">
                     <tr valign="top">
+                        <th scope="row"><label for="wcps_price_rounding_factor"><?php esc_html_e('ضریب رند کردن قیمت', 'wc-price-scraper'); ?></label></th>
+                        <td>
+                            <input type="number" id="wcps_price_rounding_factor" name="wcps_price_rounding_factor" value="<?php echo esc_attr(get_option('wcps_price_rounding_factor', 0)); ?>" min="0" class="small-text">
+                            <p class="description"><?php esc_html_e('یک عدد برای گرد کردن قیمت نهایی وارد کنید. برای مثال اگر ۱۰۰۰ وارد کنید، قیمت ۱,۵۵۰,۸۰۰ به ۱,۵۵۱,۰۰۰ رند می‌شود. برای غیرفعال کردن، عدد ۰ را وارد کنید.', 'wc-price-scraper'); ?></p>
+                        </td>
+                    </tr>
+                    <tr valign="top">
                         <th scope="row"><label for="wc_price_scraper_cron_interval"><?php esc_html_e('فاصله به‌روزرسانی (ساعت)', 'wc-price-scraper'); ?></label></th>
                         <td>
                             <input type="number" id="wc_price_scraper_cron_interval" name="wc_price_scraper_cron_interval" value="<?php echo esc_attr(get_option('wc_price_scraper_cron_interval', 12)); ?>" min="1" class="small-text">

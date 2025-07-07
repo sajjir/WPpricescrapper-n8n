@@ -58,6 +58,9 @@ if (!class_exists('WCPS_Admin')) {
             register_setting($option_group, 'wcps_high_frequency_pids', ['type' => 'string', 'sanitize_callback' => [$this, 'sanitize_pid_list']]);
             register_setting($option_group, 'wcps_high_frequency_interval', ['type' => 'integer', 'sanitize_callback' => 'absint', 'default' => 30]);
 
+            // Register price rounding factor setting
+            register_setting($option_group, 'wcps_price_rounding_factor', ['type' => 'integer', 'sanitize_callback' => 'absint', 'default' => 0]);
+
             // N8N Integration Settings (if they exist)
             register_setting($option_group, 'wc_price_scraper_n8n_enable', ['type' => 'string', 'sanitize_callback' => [$this, 'sanitize_checkbox_yes_no'], 'default' => 'no']);
             register_setting($option_group, 'wc_price_scraper_n8n_webhook_url', ['type' => 'string', 'sanitize_callback' => 'esc_url_raw', 'default' => '']);
@@ -140,7 +143,8 @@ if (!class_exists('WCPS_Admin')) {
                 'next_cron_action' => 'wc_price_scraper_next_cron',
                 'reschedule_nonce' => wp_create_nonce('wcps_reschedule_nonce'),
                 'stop_nonce'       => wp_create_nonce('wcps_stop_nonce'),
-                'clear_log_nonce'  => wp_create_nonce('wcps_clear_failed_log_nonce')
+                'clear_log_nonce'  => wp_create_nonce('wcps_clear_failed_log_nonce'),
+                'retry_n8n_nonce'  => wp_create_nonce('wcps_retry_n8n_nonce')
             ]);
             }
         }

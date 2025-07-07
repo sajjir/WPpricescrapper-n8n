@@ -93,6 +93,10 @@ if (!class_exists('WC_Price_Scraper')) {
             add_action('wp_ajax_nopriv_wcps_run_scrape_task', [$this->ajax_cron, 'run_scrape_task_handler']);
             add_action('wcps_force_run_all_event', [$this->ajax_cron, 'cron_update_all_prices']);
 
+            // --- N8N Retry AJAX & Cron ---
+            add_action('wp_ajax_wcps_retry_n8n', [$this->ajax_cron, 'ajax_retry_failed_n8n_sends']);
+            add_action('wcps_trigger_retry_n8n_event', [$this->ajax_cron, 'process_retry_n8n_sends']);
+
             // High-Frequency Hooks
             add_action('wcps_high_frequency_cron_event', [$this->ajax_cron, 'run_high_frequency_scrape']);
             add_action('wp_ajax_wcps_force_hf_scrape', [$this->ajax_cron, 'ajax_force_high_frequency_scrape']);

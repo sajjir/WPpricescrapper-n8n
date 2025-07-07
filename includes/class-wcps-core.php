@@ -172,7 +172,7 @@ if (!class_exists('WCPS_Core')) {
         // حالا به جای نقشه واریشن‌های محافظت نشده، در نقشه همه واریشن‌ها جستجو می‌کنیم
         $var_id = $all_variations_map[$variation_hash] ?? null;
 
-        // اگر واریشن پیدا شد И در لیست محافظت شده‌ها بود، از آن عبور کن
+        // اگر واریشن پیدا شد و در لیست محافظت شده‌ها بود، از آن عبور کن
         if ($var_id && in_array($var_id, $protected_variation_ids)) {
             $created_or_updated[] = $var_id; // آن را به لیست به‌روز شده‌ها اضافه می‌کنیم تا حذف نشود
             $this->plugin->debug_log("Skipping update for protected variation #{$var_id}.");
@@ -192,11 +192,22 @@ if (!class_exists('WCPS_Core')) {
         if (isset($item['price']) && is_numeric(preg_replace('/[^0-9.]/', '', $item['price']))) {
             $price = (float) preg_replace('/[^0-9.]/', '', $item['price']);
             $adjustment_percent = get_post_meta($pid, '_price_adjustment_percent', true);
+
+            // اعمال درصد افزایش/کاهش
             if (is_numeric($adjustment_percent) && $adjustment_percent != 0) {
                 $adjustment_value = (float) $adjustment_percent;
                 $price = $price * (1 + ($adjustment_value / 100));
-                $price = round($price, 2);
             }
+
+            // ++ شروع منطق جدید برای رند کردن قیمت ++
+            $rounding_factor = (int) get_option('wcps_price_rounding_factor', 0);
+            if ($rounding_factor > 0) {
+                $price = round($price / $rounding_factor) * $rounding_factor;
+            } else {
+                $price = round($price, 2); // اگر رند کردن غیرفعال بود، مثل قبل عمل کن
+            }
+            // ++ پایان منطق جدید ++
+
             $variation->set_price($price);
             $variation->set_regular_price($price);
         }
@@ -237,7 +248,27 @@ if (!class_exists('WCPS_Core')) {
         // ... (بخش تنظیم واریشن پیش‌فرض بدون تغییر باقی می‌ماند)
         $lowest_price_item = null;
         $min_price = PHP_INT_MAX;
-        foreach ($scraped_data as $item) {
+
+        // کلمات کلیدی برای تشخیص ناموجودی
+        $outofstock_keywords = ['ناموجود', 'نمی باشد', 'نمیباشد', 'اتمام'];
+
+        // ابتدا فقط آیتم‌های موجود را فیلتر می‌کنیم
+        $instock_items = array_filter($scraped_data, function($item) use ($outofstock_keywords) {
+            if (!isset($item['stock'])) {
+                return true; // اگر وضعیت انبار مشخص نبود، فرض را بر موجود بودن می‌گذاریم
+            }
+            foreach ($outofstock_keywords as $keyword) {
+                if (strpos($item['stock'], $keyword) !== false) {
+                    return false; // اگر کلمه کلیدی ناموجودی پیدا شد، آیتم را حذف کن
+                }
+            }
+            return true; // آیتم موجود است
+        });
+
+        // اگر هیچ آیتم موجودی وجود نداشت، از کل داده‌ها استفاده کن تا حداقل یک پیش‌فرض انتخاب شود
+        $items_to_search = !empty($instock_items) ? $instock_items : $scraped_data;
+
+        foreach ($items_to_search as $item) {
             if (isset($item['price'])) {
                 $cleaned_price = (float) preg_replace('/[^0-9.]/', '', $item['price']);
                 if ($cleaned_price > 0 && $cleaned_price < $min_price) {

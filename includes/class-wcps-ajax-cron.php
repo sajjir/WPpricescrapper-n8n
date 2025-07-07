@@ -367,5 +367,48 @@ if (!class_exists('WCPS_Ajax_Cron')) {
             delete_option('wcps_failed_scrapes');
             wp_send_json_success();
         }
+
+        /**
+         * AJAX handler for retrying failed N8N sends.
+         */
+        public function ajax_retry_failed_n8n_sends() {
+            if (!current_user_can('manage_options') || !check_ajax_referer('wcps_retry_n8n_nonce', 'security')) {
+                wp_send_json_error(['message' => 'درخواست نامعتبر.']);
+            }
+
+            // یک رویداد یک‌باره در پس‌زمینه اجرا می‌کند تا UI قفل نشود
+            wp_schedule_single_event(time() + 5, 'wcps_trigger_retry_n8n_event');
+
+            wp_send_json_success(['message' => 'درخواست ارسال مجدد در پس‌زمینه اجرا شد.']);
+        }
+
+        /**
+         * The actual function that processes the failed N8N sends.
+         */
+        public function process_retry_n8n_sends() {
+            $this->plugin->debug_log('[N8N_RETRY] Starting N8N retry process.');
+
+            $failed_sends = get_option('wcps_n8n_failed_sends', []);
+            if (empty($failed_sends)) {
+                $this->plugin->debug_log('[N8N_RETRY] No failed sends to process.');
+                return;
+            }
+
+            // اطمینان از اینکه کلاس N8N لود شده
+            if (isset($this->plugin->n8n_integration) && method_exists($this->plugin->n8n_integration, 'is_enabled')) {
+                foreach ($failed_sends as $product_id => $data) {
+                    // فقط آیتم‌هایی که کمتر از ۵ بار تلاش شده‌اند را دوباره ارسال می‌کنیم
+                    if ($data['attempts'] < 5) {
+                        $this->plugin->debug_log("[N8N_RETRY] Retrying send for product #{$product_id}.");
+                        // تابع اصلی ارسال را با پی‌لود ذخیره شده فراخوانی می‌کنیم
+                        $this->plugin->n8n_integration->send_payload_to_n8n($data['payload'], $product_id);
+                        // یک تاخیر کوچک بین درخواست‌ها برای جلوگیری از فشار به سرور
+                        sleep(2);
+                    }
+                }
+            }
+
+            $this->plugin->debug_log('[N8N_RETRY] N8N retry process finished.');
+        }
     }
 }

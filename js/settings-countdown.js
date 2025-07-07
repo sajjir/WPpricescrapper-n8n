@@ -182,6 +182,45 @@ jQuery(document).ready(function($) {
             }
         });
     });
+
+    $('#wcps-retry-n8n-button').on('click', function(e) {
+        e.preventDefault();
+
+        var button = $(this);
+        var spinner = $('#wcps-retry-n8n-spinner');
+        var statusSpan = $('#wcps-retry-n8n-status');
+
+        button.prop('disabled', true);
+        spinner.addClass('is-active').css('display', 'inline-block');
+        statusSpan.text('در حال ارسال درخواست...').css('color', '');
+
+        $.ajax({
+            url: wc_scraper_settings_vars.ajax_url,
+            type: 'POST',
+            data: {
+                action: 'wcps_retry_n8n',
+                security: wc_scraper_settings_vars.retry_n8n_nonce // این را باید در مرحله بعد اضافه کنیم
+            },
+            success: function(response) {
+                if (response.success) {
+                    statusSpan.text(response.data.message).css('color', 'green');
+                } else {
+                    statusSpan.text('خطا: ' + (response.data.message || 'خطای ناشناخته')).css('color', 'red');
+                    button.prop('disabled', false);
+                }
+            },
+            error: function() {
+                statusSpan.text('خطای ایجکس.').css('color', 'red');
+                button.prop('disabled', false);
+            },
+            complete: function() {
+                spinner.removeClass('is-active').hide();
+                setTimeout(function(){
+                    location.reload(); // صفحه را رفرش می‌کنیم تا لیست به‌روز شود
+                }, 2000);
+            }
+        });
+    });
 });
 
 // --- Clear Failed Log Button ---
