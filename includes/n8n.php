@@ -23,6 +23,10 @@ if (!class_exists('WC_Price_Scraper_N8N_Integration')) {
         public function __construct(WC_Price_Scraper $main_plugin) {
             $this->main_plugin = $main_plugin;
             $this->load_settings();
+
+            // +++ Step 1: Hook the handler to the Action Scheduler. +++
+            // This tells Action Scheduler: "whenever you see an action named 'wcps_n8n_send_payload', run the 'handle_send_action' method from this class."
+            add_action('wcps_n8n_send_payload', [$this, 'handle_send_action'], 10, 2);
         }
 
         /**
@@ -43,7 +47,7 @@ if (!class_exists('WC_Price_Scraper_N8N_Integration')) {
          * @return bool
          */
         public function is_enabled() {
-            return $this->settings['enabled'] && !empty($this->settings['webhook_url']);
+            return function_exists('as_enqueue_async_action') && $this->settings['enabled'] && !empty($this->settings['webhook_url']);
         }
 
         /**
@@ -58,22 +62,18 @@ if (!class_exists('WC_Price_Scraper_N8N_Integration')) {
 
             $product = wc_get_product($product_id);
             if (!$product || !$product->is_type('variable')) {
-                $this->main_plugin->debug_log("[N8N] Product #{$product_id} not found or not a variable product. Skipping N8N send.");
+                $this->main_plugin->debug_log("[N8N] Product #{$product_id} not found or not a variable product. Skipping N8N queue.");
                 return;
             }
 
             $variations = $product->get_children();
             if (empty($variations)) {
-                $this->main_plugin->debug_log("[N8N] No variations found for product #{$product_id}. Skipping N8N send.");
+                $this->main_plugin->debug_log("[N8N] No variations found for product #{$product_id}. Skipping N8N queue.");
                 return;
             }
 
-            // **** شروع بخش ویرایش شده برای تاریخ فارسی ****
-            // 1. خواندن زمان آخرین اسکرپ از دیتابیس
             $last_scraped_timestamp = get_post_meta($product_id, '_last_scraped_time', true);
-            // 2. تبدیل به فرمت فارسی/شمسی با همان متود صفحه محصول
             $last_scraped_fa = $last_scraped_timestamp ? date_i18n(get_option('date_format') . ' @ ' . get_option('time_format'), $last_scraped_timestamp) : null;
-            // **** پایان بخش ویرایش شده ****
 
             $payload = [];
             $parent_product_name = $product->get_name();
@@ -97,18 +97,15 @@ if (!class_exists('WC_Price_Scraper_N8N_Integration')) {
                     'stock_status'         => $variation_product->get_stock_status(),
                     'purchase_link_url'    => $parent_product_link,
                     'purchase_link_text'   => $purchase_link_text,
-                    // **** ارسال تاریخ به فرمت فارسی ****
                     'last_scraped_at'      => $last_scraped_fa,
                 ];
 
-                // Get model attribute based on settings (comma-separated slugs)
                 if (!empty($this->settings['model_attribute_slugs'])) {
                     $model_slugs_input = explode(',', $this->settings['model_attribute_slugs']);
                     foreach ($model_slugs_input as $single_slug_input) {
                         $trimmed_slug_input = trim($single_slug_input);
-                        if (empty($trimmed_slug_input)) {
-                            continue;
-                        }
+                        if (empty($trimmed_slug_input)) continue;
+                        
                         $model_slug_to_check = 'pa_' . sanitize_title($trimmed_slug_input);
                         $model_value = $variation_product->get_attribute($model_slug_to_check);
                         if (!empty($model_value)) {
@@ -122,27 +119,42 @@ if (!class_exists('WC_Price_Scraper_N8N_Integration')) {
             }
 
             if (empty($payload)) {
-                $this->main_plugin->debug_log("[N8N] No valid variation data to send for product #{$product_id}.");
+                $this->main_plugin->debug_log("[N8N] No valid variation data to queue for product #{$product_id}.");
                 return;
             }
 
-            $this->send_payload_to_n8n($payload, $product_id);
+            // +++ Step 2: Queue the action instead of sending directly. +++
+            // Instead of sending the payload now, we pass it to the Action Scheduler.
+            // It will be processed in the background, separately from the main scraping process.
+            as_enqueue_async_action(
+                'wcps_n8n_send_payload', // The custom hook name we defined in the constructor
+                [
+                    'payload'    => $payload,
+                    'product_id' => $product_id,
+                ],
+                'wcps-n8n-queue' // A custom group name for our actions
+            );
+
+            $this->main_plugin->debug_log("[N8N] Successfully queued data for product #{$product_id}.");
+
         }
 
         /**
-         * Sends the prepared payload to the N8N webhook.
+         * +++ Step 3: Create the handler function. +++
+         * This function is executed by Action Scheduler in the background.
+         * Its sole purpose is to send the data.
          *
          * @param array $payload The data to send.
          * @param int   $product_id For logging purposes.
          */
-        private function send_payload_to_n8n(array $payload, $product_id) {
+        public function handle_send_action($payload, $product_id) {
             $webhook_url = $this->settings['webhook_url'];
-            $this->main_plugin->debug_log("[N8N] Attempting to send data for product #{$product_id} to {$webhook_url}. Payload: " . wp_json_encode($payload));
+            $this->main_plugin->debug_log("[N8N Action] Sending data for product #{$product_id} to {$webhook_url}.");
 
             $response = wp_remote_post($webhook_url, [
                 'method'    => 'POST',
                 'timeout'   => 45,
-                'blocking'  => true,
+                'blocking'  => true, // This is fine now as it runs in a background thread
                 'headers'   => ['Content-Type' => 'application/json; charset=utf-8'],
                 'body'      => wp_json_encode($payload),
                 'sslverify' => apply_filters('wc_price_scraper_n8n_sslverify', true),
@@ -150,15 +162,19 @@ if (!class_exists('WC_Price_Scraper_N8N_Integration')) {
 
             if (is_wp_error($response)) {
                 $error_message = $response->get_error_message();
-                $this->main_plugin->debug_log("[N8N] Error sending data for product #{$product_id}: {$error_message}");
+                $this->main_plugin->debug_log("[N8N Action] Error sending data for product #{$product_id}: {$error_message}");
+                // We throw an exception to let Action Scheduler know it failed and should retry.
+                throw new Exception("N8N Webhook failed for product #{$product_id}: {$error_message}");
+            }
+
+            $status_code = wp_remote_retrieve_response_code($response);
+            if ($status_code >= 200 && $status_code < 300) {
+                $this->main_plugin->debug_log("[N8N Action] Successfully sent data for product #{$product_id}. Status: {$status_code}.");
             } else {
-                $status_code = wp_remote_retrieve_response_code($response);
                 $response_body = wp_remote_retrieve_body($response);
-                if ($status_code >= 200 && $status_code < 300) {
-                    $this->main_plugin->debug_log("[N8N] Successfully sent data for product #{$product_id}. Status: {$status_code}. Response: " . substr($response_body, 0, 200));
-                } else {
-                    $this->main_plugin->debug_log("[N8N] Failed to send data for product #{$product_id}. Status: {$status_code}. Response: {$response_body}");
-                }
+                $this->main_plugin->debug_log("[N8N Action] Failed to send data for product #{$product_id}. Status: {$status_code}. Response: {$response_body}");
+                // Also throw an exception for non-2xx responses
+                throw new Exception("N8N Webhook returned non-successful status {$status_code} for product #{$product_id}.");
             }
         }
     }
