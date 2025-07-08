@@ -24,8 +24,7 @@ if (!class_exists('WC_Price_Scraper_N8N_Integration')) {
             $this->main_plugin = $main_plugin;
             $this->load_settings();
 
-            // +++ Step 1: Hook the handler to the Action Scheduler. +++
-            // This tells Action Scheduler: "whenever you see an action named 'wcps_n8n_send_payload', run the 'handle_send_action' method from this class."
+            // This hook connects our handler to the Action Scheduler.
             add_action('wcps_n8n_send_payload', [$this, 'handle_send_action'], 10, 2);
         }
 
@@ -43,7 +42,7 @@ if (!class_exists('WC_Price_Scraper_N8N_Integration')) {
 
         /**
          * Check if N8N integration is enabled and configured.
-         *
+         * We also check if Action Scheduler is available.
          * @return bool
          */
         public function is_enabled() {
@@ -51,7 +50,7 @@ if (!class_exists('WC_Price_Scraper_N8N_Integration')) {
         }
 
         /**
-         * Prepares and sends data for a given product ID to N8N.
+         * This function prepares the data and QUEUES it. It doesn't send it directly.
          *
          * @param int $product_id The ID of the parent product.
          */
@@ -123,26 +122,21 @@ if (!class_exists('WC_Price_Scraper_N8N_Integration')) {
                 return;
             }
 
-            // +++ Step 2: Queue the action instead of sending directly. +++
-            // Instead of sending the payload now, we pass it to the Action Scheduler.
-            // It will be processed in the background, separately from the main scraping process.
+            // Queue the action instead of sending directly.
             as_enqueue_async_action(
-                'wcps_n8n_send_payload', // The custom hook name we defined in the constructor
+                'wcps_n8n_send_payload',
                 [
                     'payload'    => $payload,
                     'product_id' => $product_id,
                 ],
-                'wcps-n8n-queue' // A custom group name for our actions
+                'wcps-n8n-queue'
             );
 
-            $this->main_plugin->debug_log("[N8N] Successfully queued data for product #{$product_id}.");
-
+            $this->main_plugin->debug_log("[N8N] Successfully queued data for product #{$product_id}. It will be sent on the next site visit.");
         }
 
         /**
-         * +++ Step 3: Create the handler function. +++
-         * This function is executed by Action Scheduler in the background.
-         * Its sole purpose is to send the data.
+         * This is the handler function that Action Scheduler runs in the background.
          *
          * @param array $payload The data to send.
          * @param int   $product_id For logging purposes.
@@ -154,7 +148,7 @@ if (!class_exists('WC_Price_Scraper_N8N_Integration')) {
             $response = wp_remote_post($webhook_url, [
                 'method'    => 'POST',
                 'timeout'   => 45,
-                'blocking'  => true, // This is fine now as it runs in a background thread
+                'blocking'  => true,
                 'headers'   => ['Content-Type' => 'application/json; charset=utf-8'],
                 'body'      => wp_json_encode($payload),
                 'sslverify' => apply_filters('wc_price_scraper_n8n_sslverify', true),
@@ -163,19 +157,17 @@ if (!class_exists('WC_Price_Scraper_N8N_Integration')) {
             if (is_wp_error($response)) {
                 $error_message = $response->get_error_message();
                 $this->main_plugin->debug_log("[N8N Action] Error sending data for product #{$product_id}: {$error_message}");
-                // We throw an exception to let Action Scheduler know it failed and should retry.
                 throw new Exception("N8N Webhook failed for product #{$product_id}: {$error_message}");
             }
 
             $status_code = wp_remote_retrieve_response_code($response);
-            if ($status_code >= 200 && $status_code < 300) {
-                $this->main_plugin->debug_log("[N8N Action] Successfully sent data for product #{$product_id}. Status: {$status_code}.");
-            } else {
+            if (!($status_code >= 200 && $status_code < 300)) {
                 $response_body = wp_remote_retrieve_body($response);
                 $this->main_plugin->debug_log("[N8N Action] Failed to send data for product #{$product_id}. Status: {$status_code}. Response: {$response_body}");
-                // Also throw an exception for non-2xx responses
                 throw new Exception("N8N Webhook returned non-successful status {$status_code} for product #{$product_id}.");
             }
+
+             $this->main_plugin->debug_log("[N8N Action] Successfully sent data for product #{$product_id}. Status: {$status_code}.");
         }
     }
 }
