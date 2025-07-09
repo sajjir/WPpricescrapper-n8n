@@ -129,25 +129,20 @@ if (!class_exists('WCPS_Core')) {
 
     $this->prepare_parent_attributes_stable($pid, $scraped_data);
 
-    // --- START: منطق جدید برای شناسایی همه واریشن‌ها ---
     $existing_variation_ids = $parent_product->get_children();
-    $all_variations_map = [];     // نقشه‌ای از تمام واریشن‌ها بر اساس ویژگی‌هایشان
-    $protected_variation_ids = []; // لیستی جداگانه از شناسه‌های واریشن‌های محافظت شده
+    $all_variations_map = [];
+    $protected_variation_ids = [];
 
     foreach ($existing_variation_ids as $var_id) {
-        // ابتدا بررسی می‌کنیم که آیا واریشن محافظت شده است یا خیر
         if (get_post_meta($var_id, '_wcps_is_protected', true) === 'yes') {
             $protected_variation_ids[] = $var_id;
         }
-
-        // سپس، اطلاعات همه واریشن‌ها (چه محافظت شده و چه نشده) را به نقشه اضافه می‌کنیم
         $variation = wc_get_product($var_id);
         if (!$variation) continue;
         $attributes = $variation->get_attributes();
         ksort($attributes);
         $all_variations_map[md5(json_encode($attributes))] = $var_id;
     }
-    // --- END: منطق جدید ---
 
     $created_or_updated = [];
     foreach ($scraped_data as $item) {
@@ -177,20 +172,14 @@ if (!class_exists('WCPS_Core')) {
         ksort($attr_data);
         $variation_hash = md5(json_encode($attr_data));
         
-        // --- START: هسته اصلی اصلاحیه ---
-        // حالا به جای نقشه واریشن‌های محافظت نشده، در نقشه همه واریشن‌ها جستجو می‌کنیم
         $var_id = $all_variations_map[$variation_hash] ?? null;
 
-        // اگر واریشن پیدا شد و در لیست محافظت شده‌ها بود، از آن عبور کن
         if ($var_id && in_array($var_id, $protected_variation_ids)) {
-            $created_or_updated[] = $var_id; // آن را به لیست به‌روز شده‌ها اضافه می‌کنیم تا حذف نشود
+            $created_or_updated[] = $var_id;
             $this->plugin->debug_log("Skipping update for protected variation #{$var_id}.");
-            continue; // برو سراغ آیتم بعدی از داده‌های اسکرپ شده
+            continue;
         }
-        // --- END: هسته اصلی اصلاحیه ---
 
-        // اگر کد به اینجا رسید، یعنی واریشن یا وجود ندارد، یا وجود دارد ولی محافظت شده نیست.
-        // پس منطق قبلی برای ساخت یا به‌روزرسانی ادامه پیدا می‌کند.
         $variation = ($var_id) ? wc_get_product($var_id) : new WC_Product_Variation();
         if (!$var_id) {
             $variation->set_parent_id($pid);
@@ -201,22 +190,11 @@ if (!class_exists('WCPS_Core')) {
         if (isset($item['price']) && is_numeric(preg_replace('/[^0-9.]/', '', $item['price']))) {
             $price = (float) preg_replace('/[^0-9.]/', '', $item['price']);
             $adjustment_percent = get_post_meta($pid, '_price_adjustment_percent', true);
-
-            // اعمال درصد افزایش/کاهش
             if (is_numeric($adjustment_percent) && $adjustment_percent != 0) {
                 $adjustment_value = (float) $adjustment_percent;
                 $price = $price * (1 + ($adjustment_value / 100));
+                $price = round($price, 2);
             }
-
-            // ++ شروع منطق جدید برای رند کردن قیمت ++
-            $rounding_factor = (int) get_option('wcps_price_rounding_factor', 0);
-            if ($rounding_factor > 0) {
-                $price = round($price / $rounding_factor) * $rounding_factor;
-            } else {
-                $price = round($price, 2); // اگر رند کردن غیرفعال بود، مثل قبل عمل کن
-            }
-            // ++ پایان منطق جدید ++
-
             $variation->set_price($price);
             $variation->set_regular_price($price);
         }
@@ -240,11 +218,8 @@ if (!class_exists('WCPS_Core')) {
         $created_or_updated[] = $variation_id;
     }
 
-    // --- START: اصلاح منطق حذف ---
-    // لیست واریشن‌های کاندید برای حذف، باید فقط شامل واریشن‌های محافظت نشده باشد
     $unprotected_variation_ids = array_diff($existing_variation_ids, $protected_variation_ids);
     $variations_to_delete = array_diff($unprotected_variation_ids, $created_or_updated);
-    // --- END: اصلاح منطق حذف ---
 
     foreach ($variations_to_delete as $var_id_to_delete) {
         wp_delete_post($var_id_to_delete, true);
@@ -253,6 +228,9 @@ if (!class_exists('WCPS_Core')) {
     
     $this->plugin->debug_log("Smart variation sync complete for product #{$pid}.");
     
+    // ===================================================================
+    // +++ START: NEW LOGIC FOR SETTING DEFAULT VARIATION +++
+    // ===================================================================
     if (!empty($scraped_data)) {
         $in_stock_items = [];
         $out_of_stock_items = [];
@@ -269,7 +247,6 @@ if (!class_exists('WCPS_Core')) {
                     }
                 }
             }
-            // Also consider items without a price as out of stock
             if (!isset($item['price']) || empty($item['price'])) {
                 $is_outofstock = true;
             }
@@ -322,6 +299,9 @@ if (!class_exists('WCPS_Core')) {
             }
         }
     }
+    // ===================================================================
+    // +++ END: NEW LOGIC FOR SETTING DEFAULT VARIATION +++
+    // ===================================================================
 
     wc_delete_product_transients($pid);
 }
