@@ -254,38 +254,51 @@ if (!class_exists('WCPS_Core')) {
     $this->plugin->debug_log("Smart variation sync complete for product #{$pid}.");
     
     if (!empty($scraped_data)) {
-        // ... (بخش تنظیم واریشن پیش‌فرض بدون تغییر باقی می‌ماند)
-        $lowest_price_item = null;
-        $min_price = PHP_INT_MAX;
-
-        // کلمات کلیدی برای تشخیص ناموجودی
+        $in_stock_items = [];
+        $out_of_stock_items = [];
         $outofstock_keywords = ['ناموجود', 'نمی باشد', 'نمیباشد', 'اتمام'];
 
-        // ابتدا فقط آیتم‌های موجود را فیلتر می‌کنیم
-        $instock_items = array_filter($scraped_data, function($item) use ($outofstock_keywords) {
-            if (!isset($item['stock'])) {
-                return true; // اگر وضعیت انبار مشخص نبود، فرض را بر موجود بودن می‌گذاریم
-            }
-            foreach ($outofstock_keywords as $keyword) {
-                if (strpos($item['stock'], $keyword) !== false) {
-                    return false; // اگر کلمه کلیدی ناموجودی پیدا شد، آیتم را حذف کن
+        // Step 1: Separate items based on stock status
+        foreach ($scraped_data as $item) {
+            $is_outofstock = false;
+            if (isset($item['stock'])) {
+                foreach ($outofstock_keywords as $keyword) {
+                    if (strpos($item['stock'], $keyword) !== false) {
+                        $is_outofstock = true;
+                        break;
+                    }
                 }
             }
-            return true; // آیتم موجود است
-        });
+            // Also consider items without a price as out of stock
+            if (!isset($item['price']) || empty($item['price'])) {
+                $is_outofstock = true;
+            }
 
-        // اگر هیچ آیتم موجودی وجود نداشت، از کل داده‌ها استفاده کن تا حداقل یک پیش‌فرض انتخاب شود
-        $items_to_search = !empty($instock_items) ? $instock_items : $scraped_data;
+            if ($is_outofstock) {
+                $out_of_stock_items[] = $item;
+            } else {
+                $in_stock_items[] = $item;
+            }
+        }
 
-        foreach ($items_to_search as $item) {
-            if (isset($item['price'])) {
-                $cleaned_price = (float) preg_replace('/[^0-9.]/', '', $item['price']);
-                if ($cleaned_price > 0 && $cleaned_price < $min_price) {
-                    $min_price = $cleaned_price;
-                    $lowest_price_item = $item;
+        // Step 2: Find the cheapest item, prioritizing in-stock items
+        $lowest_price_item = null;
+        $target_items = !empty($in_stock_items) ? $in_stock_items : $out_of_stock_items;
+        
+        if (!empty($target_items)) {
+            $min_price = PHP_INT_MAX;
+            foreach ($target_items as $item) {
+                if (isset($item['price'])) {
+                    $cleaned_price = (float) preg_replace('/[^0-9.]/', '', $item['price']);
+                    if ($cleaned_price > 0 && $cleaned_price < $min_price) {
+                        $min_price = $cleaned_price;
+                        $lowest_price_item = $item;
+                    }
                 }
             }
         }
+
+        // Step 3: Set default attributes based on the found item
         if ($lowest_price_item !== null) {
             $default_attributes = [];
             $non_attribute_keys = ['price', 'stock', 'url', 'image', 'seller'];
