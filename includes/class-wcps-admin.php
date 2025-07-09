@@ -66,6 +66,9 @@ if (!class_exists('WCPS_Admin')) {
             register_setting($option_group, 'wc_price_scraper_n8n_webhook_url', ['type' => 'string', 'sanitize_callback' => 'esc_url_raw', 'default' => '']);
             register_setting($option_group, 'wc_price_scraper_n8n_model_slug', ['type' => 'string', 'sanitize_callback' => 'sanitize_text_field', 'default' => '']);
             register_setting($option_group, 'wc_price_scraper_n8n_purchase_link_text', ['type' => 'string', 'sanitize_callback' => 'sanitize_text_field', 'default' => 'Buy Now']);
+
+            // NEW: On Failure Set Out of Stock
+            register_setting($option_group, 'wcps_on_failure_set_outofstock', ['type' => 'string', 'sanitize_callback' => [$this, 'sanitize_checkbox_yes_no'], 'default' => 'yes']);
         }
 
         /**

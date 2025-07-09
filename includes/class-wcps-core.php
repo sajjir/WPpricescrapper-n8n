@@ -15,7 +15,16 @@ if (!class_exists('WCPS_Core')) {
             $raw_data = $this->plugin->make_api_call(WC_PRICE_SCRAPER_API_ENDPOINT . '?url=' . urlencode($url));
 
             if (is_wp_error($raw_data)) {
-                $this->set_all_product_variations_outof_stock($pid);
+                // +++ START: Conditional Logic +++
+                // Check if the setting to make product out of stock on failure is enabled.
+                if (get_option('wcps_on_failure_set_outofstock', 'yes') === 'yes') {
+                    $this->plugin->debug_log("Setting product #{$pid} to out of stock due to scrape failure as per settings.");
+                    $this->set_all_product_variations_outof_stock($pid);
+                } else {
+                    $this->plugin->debug_log("Skipping stock change for product #{$pid} on failure as per settings.");
+                }
+                // +++ END: Conditional Logic +++
+
                 update_post_meta($pid, '_scraped_data', []);
                 return $raw_data;
             }

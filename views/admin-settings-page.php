@@ -89,6 +89,18 @@ if (isset($_POST['wcps_action']) && $_POST['wcps_action'] === 'clear_failed_log'
                             <p class="description"><?php esc_html_e('هر چند ساعت یکبار قیمت تمام محصولات به صورت خودکار به‌روز شود.', 'wc-price-scraper'); ?></p>
                         </td>
                     </tr>
+
+                    <tr valign="top">
+                        <th scope="row"><?php esc_html_e('رفتار در زمان شکست', 'wc-price-scraper'); ?></th>
+                        <td>
+                            <label for="wcps_on_failure_set_outofstock">
+                                <input name="wcps_on_failure_set_outofstock" type="checkbox" id="wcps_on_failure_set_outofstock" value="yes" <?php checked('yes', get_option('wcps_on_failure_set_outofstock', 'yes')); ?> />
+                                <?php esc_html_e('اگر اسکرپ ناموفق بود، محصول ناموجود شود.', 'wc-price-scraper'); ?>
+                            </label>
+                            <p class="description"><?php esc_html_e('اگر تیک نخورده باشد، در صورت بروز خطا هیچ تغییری در وضعیت انبار محصول ایجاد نمی‌شود و صرفاً خطا ثبت می‌گردد.', 'wc-price-scraper'); ?></p>
+                        </td>
+                    </tr>
+
                     <tr valign="top">
                         <th scope="row"><?php esc_html_e('وضعیت کرون جاب', 'wc-price-scraper'); ?></th>
                         <td>
